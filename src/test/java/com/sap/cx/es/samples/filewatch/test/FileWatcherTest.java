@@ -14,37 +14,28 @@
  */
 package com.sap.cx.es.samples.filewatch.test;
 
-import static org.junit.Assert.*;
-
+import com.sap.cx.es.samples.filewatch.FileAdapter;
+import com.sap.cx.es.samples.filewatch.FileWatcher;
 import com.sap.cx.es.samples.filewatch.WatcherRegister;
+import com.sap.cx.es.samples.filewatch.event.FileEvent;
 import javafx.util.Pair;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Test;
 
-import com.sap.cx.es.samples.filewatch.FileAdapter;
-import com.sap.cx.es.samples.filewatch.FileWatcher;
-import com.sap.cx.es.samples.filewatch.event.FileEvent;
-
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.time.Duration;
-import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.Assert.*;
+
 /**
- *
- *
  * @author Alexei Liubimov <alexei.liubimov@sap.com>
  * @package com.sap.cx.es.samples.filewatch.test
  * @link http://sap.com/
@@ -54,6 +45,7 @@ public class FileWatcherTest {
 
 	/**
 	 * Test of catching Create-Modify-Delete events
+	 *
 	 * @throws IOException
 	 * @throws InterruptedException
 	 */
@@ -104,7 +96,7 @@ public class FileWatcherTest {
 	public void testFW_mdFileEvents() throws IOException, InterruptedException {
 		final Map<String, String> map = new HashMap<>();
 		File file = new File("src/test/resources/testFile.txt");
-		if (!file.exists()){
+		if (!file.exists()) {
 			file.createNewFile();
 		}
 
@@ -133,6 +125,7 @@ public class FileWatcherTest {
 
 	/**
 	 * Test that long executed listeners are allowed.
+	 *
 	 * @throws IOException
 	 * @throws InterruptedException
 	 */
@@ -192,7 +185,8 @@ public class FileWatcherTest {
 		File folder = new File("src/test/resources");
 		final Map<String, String> map = new HashMap<>();
 
-		FileAdapter localListener = new FileAdapter() {
+		FileWatcher watcher = WatcherRegister.getRegister().createWatcher(folder);
+		watcher.addListener(new FileAdapter() {
 			public void onCreated(FileEvent event) {
 				map.put("file.created", event.getFile().getName());
 			}
@@ -204,10 +198,7 @@ public class FileWatcherTest {
 			public void onDeleted(FileEvent event) {
 				map.put("file.deleted", event.getFile().getName());
 			}
-		};
-
-		FileWatcher watcher = WatcherRegister.getRegister().createWatcher(folder);
-		watcher.addListener(localListener).watch();
+		}).watch();
 
 		assertEquals(1, watcher.getListeners().size());
 		Thread.sleep(3000);
@@ -237,7 +228,7 @@ public class FileWatcherTest {
 		File folder = new File("src/test/resources");
 
 		FileWatcher watcher = WatcherRegister.getRegister().createWatcher(folder);
-		FileAdapter localListener1 = new FileAdapter() {
+		watcher.addListener(new FileAdapter() {
 			public void onModified(FileEvent event) {
 				try {
 					Thread.sleep(2000);
@@ -245,24 +236,22 @@ public class FileWatcherTest {
 					Thread.currentThread().interrupt();
 				}
 			}
-		};
-		FileAdapter localListener2 = new FileAdapter() {
-			public void onModified(FileEvent event) {
-				try {
-					Thread.sleep(2000);
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-				}
-			}
-		};
-		watcher.addListener(localListener1).watch();
+		}).watch();
 
 		assertEquals(1, watcher.getListeners().size());
 
 		// Second watcher for the same folder
 		File folder2 = new File("src/test/resources");
 		FileWatcher watcher2 = WatcherRegister.getRegister().createWatcher(folder2);
-		watcher2.addListener(localListener2).watch();
+		watcher2.addListener(new FileAdapter() {
+			public void onModified(FileEvent event) {
+				try {
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		}).watch();
 
 		assertSame(watcher, watcher2);
 		assertEquals(2, watcher2.getListeners().size());
@@ -279,10 +268,9 @@ public class FileWatcherTest {
 	public void testWR_1000watchers() throws IOException, InterruptedException {
 		File folder = new File("src/test/resources");
 
-		final Map<String, Pair<AtomicLong, AtomicLong>> map = new ConcurrentHashMap<String, Pair<AtomicLong, AtomicLong>>();
-		final int N = 1000;
-		final long NS2MS = 1;
-		final long VALID_DURATION_NS = 3000 * NS2MS;
+		Map<String, Pair<AtomicLong, AtomicLong>> map = new ConcurrentHashMap<String, Pair<AtomicLong, AtomicLong>>();
+		int N = 1000;
+		long VALID_DURATION_MS = 3000;
 		List<File> files = new ArrayList<>(N);
 
 		// Create N files
@@ -296,23 +284,23 @@ public class FileWatcherTest {
 		Thread.sleep(N * 2);
 
 		// Register watchers on files
-		for(File file : files){
+		for (File file : files) {
 			// Watcher on the file
 			WatcherRegister.getRegister().createWatcher(file)
 					.addListener(new FileAdapter() {
 						public void onModified(FileEvent event) {
-							// Register catch EVENT_MODIFY event
+							// Register time for the first EVENT_MODIFY event
 							map.get(event.getFile().getAbsolutePath()).getValue().compareAndSet(0, System.currentTimeMillis());
 						}
 					}).watch();
-			map.put(file.getAbsolutePath(), new Pair<AtomicLong, AtomicLong>(new AtomicLong(0), new AtomicLong(0)));
+			map.put(file.getAbsolutePath(), new Pair<>(new AtomicLong(0), new AtomicLong(0)));
 		}
 
 		try {
 			Thread.sleep(1000);
 
 			// Modify files
-			for(File file : files) {
+			for (File file : files) {
 				try (FileWriter writer = new FileWriter(file)) {
 					// Register start modification time
 					writer.write("Some String");
@@ -323,19 +311,19 @@ public class FileWatcherTest {
 
 			// Check the number of executions
 			// Events count on the parent folder. It should be the same as sum of all internal files event count
-			for (File file : files){
+			for (File file : files) {
 				Pair<AtomicLong, AtomicLong> timePair = map.get(file.getAbsolutePath());
-				long durationNano = timePair.getValue().get() - timePair.getKey().get();
+				long duration = timePair.getValue().get() - timePair.getKey().get();
 
-				// Check that duration less then VALID_DURATION_NS sec
-				//System.out.printf("File: %s; Duration, ms: %s\n", file.getName(), durationNano / NS2MS);
+				// Check that duration less then VALID_DURATION_MS sec
+				//System.out.printf("File: %s; Duration, ms: %s\n", file.getName(), durationNano);
 				assertTrue("File " + file.getName() + "; Zero Duration", timePair.getValue().get() > 0);
-				assertTrue("File " + file.getName() + "; Duration, ms: " + durationNano / NS2MS, durationNano < VALID_DURATION_NS);
+				assertTrue("File " + file.getName() + "; Duration, ms: " + duration, duration < VALID_DURATION_MS);
 			}
 
 		} finally {
 			// Delete all files
-			for(File file: files){
+			for (File file : files) {
 				file.delete();
 			}
 		}
@@ -352,38 +340,35 @@ public class FileWatcherTest {
 	public void testWR_1000listeners() throws IOException, InterruptedException {
 		File folder = new File("src/test/resources");
 
-		final Map<String, Pair<AtomicLong, AtomicLong>> map = new ConcurrentHashMap<String, Pair<AtomicLong, AtomicLong>>();
-		final int N = 1000;
-		final long NS2MS = 1;
-		final long VALID_DURATION_NS = 1000 * NS2MS;
-		List<File> files = new ArrayList<>(N);
+		Map<String, Pair<AtomicLong, AtomicLong>> map = new ConcurrentHashMap<String, Pair<AtomicLong, AtomicLong>>();
+		int N = 1000;
+		long VALID_DURATION_MS = 1000;
 
 		// Create file
 		File file = new File(folder + "/test1000L.txt");
-		if (!file.exists()){
+		if (!file.exists()) {
 			file.createNewFile();
 		}
 		Thread.sleep(1000);
 
 		// Register watchers on files
 		FileWatcher lastWatcher = null;
-		for(int i = 0; i < N; ++i){
-			// Watcher on the file
+		for (int i = 0; i < N; ++i) {
 			final int idx = i;
 			lastWatcher = WatcherRegister.getRegister().createWatcher(file)
 					.addListener(new FileAdapter() {
 						public void onModified(FileEvent event) {
 							try {
-								// Register catch EVENT_MODIFY event
+								// Register time for the first EVENT_MODIFY event
 								map.get(event.getFile().getAbsolutePath() + idx).getValue().compareAndSet(0, System.currentTimeMillis());
 								Thread.sleep(2000);
-							} catch (InterruptedException e){
+							} catch (InterruptedException e) {
 								Thread.currentThread().interrupt();
 							}
 						}
 					});
 			lastWatcher.watch();
-			map.put(file.getAbsolutePath() + idx, new Pair<AtomicLong, AtomicLong>(new AtomicLong(0), new AtomicLong(0)));
+			map.put(file.getAbsolutePath() + idx, new Pair<>(new AtomicLong(0), new AtomicLong(0)));
 		}
 		assertEquals("Watcher listeners count", N, lastWatcher.getListeners().size());
 
@@ -394,7 +379,7 @@ public class FileWatcherTest {
 			try (FileWriter writer = new FileWriter(file)) {
 				// Register start modification time
 				long currentTime = System.currentTimeMillis();
-				for(int i = 0; i < N; ++i) {
+				for (int i = 0; i < N; ++i) {
 					map.get(file.getAbsolutePath() + i).getKey().set(currentTime);
 				}
 				writer.write("Some String");
@@ -403,15 +388,15 @@ public class FileWatcherTest {
 
 			// Check the number of executions
 			// Events count on the parent folder. It should be the same as sum of all internal files event count
-			for (int i = 0; i < N; ++i){
+			for (int i = 0; i < N; ++i) {
 				String key = file.getAbsolutePath() + i;
 				Pair<AtomicLong, AtomicLong> timePair = map.get(key);
-				long durationNano = timePair.getValue().get() - timePair.getKey().get();
+				long duration = timePair.getValue().get() - timePair.getKey().get();
 
-				// Check that duration less then VALID_DURATION_NS sec
-				//System.out.printf("Listener: %s; Duration, ms: %s\n", key, durationNano / NS2MS);
+				// Check that duration less then VALID_DURATION_MS sec
+				//System.out.printf("Listener: %s; Duration, ms: %s\n", key, duration);
 				assertTrue("Listener " + key + "; Zero Duration", timePair.getValue().get() > 0);
-				assertTrue("Listener " + key + "; Duration, ms: " + durationNano / NS2MS, durationNano < VALID_DURATION_NS);
+				assertTrue("Listener " + key + "; Duration, ms: " + duration, duration < VALID_DURATION_MS);
 			}
 
 		} finally {
@@ -427,7 +412,7 @@ public class FileWatcherTest {
 	}
 
 	@AfterClass
-	public static void shutdownRegister(){
+	public static void shutdownRegister() {
 		WatcherRegister.stopWatcherRegister();
 	}
 }
